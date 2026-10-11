@@ -151,7 +151,15 @@ class RetrieveResultSerializer(serializers.Serializer):
     document_version = serializers.CharField(help_text="Отпечаток содержимого: видно, что документ изменился")
     title = serializers.CharField()
     text = serializers.CharField(help_text="Отрывок целиком, с перехлёстом")
-    score = serializers.FloatField(help_text="Шкала BM25: для сортировки и отладки, человеку не показывать")
+    score = serializers.FloatField(
+        allow_null=True,
+        help_text=(
+            "Всегда null. Раньше здесь была шкала BM25, но с гибридным поиском "
+            "выдача сливается по рангам (RRF): это сумма обратных мест, а не "
+            "BM25 и не косинус. Число, которое ничего не значит, хуже его "
+            "отсутствия — поэтому его нет."
+        ),
+    )
     rubrics = serializers.ListField(child=serializers.CharField())
     is_public = serializers.BooleanField(help_text="Можно ли пересказывать это всем")
 

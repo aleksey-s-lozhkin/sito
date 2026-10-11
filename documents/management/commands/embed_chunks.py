@@ -46,7 +46,7 @@ VECTOR_FIELD = "dense_vector"
 
 
 class Command(BaseCommand):
-    help = "Посчитать эмбеддинги кусков (nomic-embed-text) и записать их в индекс"
+    help = "Посчитать эмбеддинги кусков (bge-m3) и записать их в индекс"
 
     def add_arguments(self, parser):
         parser.add_argument(
