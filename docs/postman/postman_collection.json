@@ -205,6 +205,27 @@
       ]
     },
     {
+      "name": "🔎 Retrieval (контракт)",
+      "item": [
+        {
+          "name": "Retrieve chunks",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{consumer_token}}" }
+            ],
+            "url": "{{base_url}}/api/v1/search/retrieve",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"query\": \"как деплоить проект\",\n  \"limit\": 10,\n  \"rubrics\": []\n}"
+            },
+            "description": "Поиск отрывков для Семёна и лаптя (docs/SEARCH-CONTRACT.md). Токен потребителя, не JWT: `manage.py issue_api_token --name semen --scope service`. Кого искать — решает токен, поэтому `user_id` в теле запрещён (400). `query` — от 3 до 1000 знаков, `limit` — до 50. Пустой `results` при 200 значит «не нашлось», а не ошибку; 503 — поиск недоступен. Поле `score` в ответе всегда `null`, `source` говорит, чем нашли: hybrid, vector или fulltext."
+          }
+        }
+      ]
+    },
+    {
       "name": "🏥 Monitoring",
       "item": [
         {
@@ -238,6 +259,7 @@
     { "key": "base_url", "value": "http://localhost", "type": "string" },
     { "key": "access_token", "value": "", "type": "string" },
     { "key": "refresh_token", "value": "", "type": "string" },
+    { "key": "consumer_token", "value": "", "type": "string" },
     { "key": "document_id", "value": "1", "type": "string" },
     { "key": "history_id", "value": "1", "type": "string" }
   ]
