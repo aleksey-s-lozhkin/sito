@@ -81,6 +81,7 @@ docker exec nginx sh -c 'tail -50 /var/log/nginx/access.log'
 | Запись | Что значит |
 |---|---|
 | `Не удалось проиндексировать документ N` | Elasticsearch недоступен или отказал в записи. Документ в базе есть, поиском не находится |
+| `Векторная половина недоступна, отвечаю полнотекстом` | Модель эмбеддингов или поле вектора недоступны. Поиск работает, но ищет по словам; проверить — раздел «Поиск отвечает по словам» ниже |
 | `Кэш недоступен, лимит ... не применяется` | Redis недоступен, лимиты пропускают запросы |
 | `DisallowedHost` | запрос пришёл на хост, которого нет в `ALLOWED_HOSTS` |
 | `413 Request Entity Too Large` | ответ nginx до приложения: нет `client_max_body_size` в vhost либо файл больше 20 МБ |
@@ -122,19 +123,46 @@ docker exec diploma-web sh -c 'touch /app/media/.probe && rm /app/media/.probe &
 ### Не ищется документ, который точно есть
 
 ```bash
-# Сколько документов в базе и сколько в индексе
+# Сколько документов в базе и сколько в индексах
 docker exec postgres psql -U diploma -d diploma -c "SELECT count(*) FROM documents_document;"
 docker exec diploma-web python -c "
 from elasticsearch_dsl.connections import connections
-print(connections.get_connection().cat.indices(index='documents', format='json', h='index,health,docs.count,store.size'))"
+print(connections.get_connection().cat.indices(index='documents,chunks', format='json', h='index,health,docs.count,store.size'))"
 
-# Пересобрать индекс из базы (единственный источник правды)
+# Пересобрать индексы из базы (единственный источник правды)
 docker exec diploma-web python manage.py search_index --rebuild -f
+docker exec diploma-web python manage.py reindex_chunks
+docker exec diploma-web python manage.py embed_chunks   # без него не будет векторов
 ```
 
-Здоровье индекса должно быть `green`: реплик у индекса нет (`number_of_replicas=0`),
-поэтому `yellow` означал бы, что настройки индекса не применились и его нужно
+Здоровье индексов должно быть `green`: реплик у них нет (`number_of_replicas=0`),
+поэтому `yellow` означал бы, что настройки не применились и индекс нужно
 пересоздать.
+
+### Поиск отвечает по словам, хотя должен по смыслу
+
+Признак — `source: "fulltext"` в ответе `/api/v1/search/retrieve`, когда запрос
+заведомо перефразированный. Порядок проверки:
+
+```bash
+# 1. Есть ли у отрывков вектора (их не будет после reindex_chunks, если забыть embed_chunks)
+docker exec diploma-web python -c "
+from elasticsearch_dsl.connections import connections
+print(connections.get_connection().count(index='chunks', body={'query': {'exists': {'field': 'dense_vector'}}}))"
+
+# 2. Добираются ли вектора (команда берёт только куски без векторов)
+docker exec diploma-web python manage.py embed_chunks
+
+# 3. Доступна ли модель эмбеддингов
+docker exec diploma-web python -c "
+from documents.services import embedding_service
+print(embedding_service.model_name(), embedding_service.dimension())"
+```
+
+Векторная половина — **дополнение, а не замена**: её отказ не ломает поиск, и
+именно поэтому о нём легко не узнать. В логе это видно строкой «Векторная
+половина недоступна, отвечаю полнотекстом». Пусто в `OLLAMA_URL` означает, что
+вектора выключены намеренно, — тогда `fulltext` это норма, а не поломка.
 
 ### Контейнер не становится healthy
 
@@ -160,8 +188,9 @@ docker exec postgres pg_dump -U diploma -d diploma -Fc > /srv/backups/diploma/di
 docker exec -i postgres pg_restore -U diploma -d diploma --clean --if-exists < dump
 ```
 
-Индекс Elasticsearch бэкапить не нужно: он пересобирается из базы командой
-`search_index --rebuild -f`.
+Индексы Elasticsearch бэкапить не нужно: оба производные и пересобираются из базы
+командами `search_index --rebuild -f` и `reindex_chunks` — но после второй нужен
+`embed_chunks`, иначе векторная половина поиска отключится молча.
 
 ## Ресурсы и место на диске
 
