@@ -5,9 +5,16 @@
 [![Django](https://img.shields.io/badge/django-6.0-green.svg)](https://www.djangoproject.com/)
 [![Elasticsearch](https://img.shields.io/badge/elasticsearch-8.11-blue.svg)](https://www.elastic.co/)
 
-Сервис загрузки и полнотекстового поиска по документам: пользователь загружает
-PDF, DOCX, XLSX или TXT либо вводит текст руками, система извлекает содержимое,
-индексирует его в Elasticsearch и ищет с русской и английской морфологией.
+Сервис загрузки и поиска по документам: пользователь загружает PDF, DOCX, XLSX
+или TXT либо вводит текст руками, система извлекает содержимое, индексирует его
+в Elasticsearch и ищет с русской и английской морфологией.
+
+**Путей поиска два, и путать их не стоит.** В веб-интерфейсе — полнотекстовый
+поиск по целым документам с нечёткостью. Для потребителей (Семён и лапот) —
+`POST /api/v1/search/retrieve`: строгий полнотекст **плюс** поиск по векторам
+(модель `bge-m3`), выдачи сливаются по рангам. Почему именно так, а не «просто
+добавить вектора», решено замером:
+[docs/RAG-EXPERIMENT.md](docs/RAG-EXPERIMENT.md).
 
 Продакшен: **https://sito.pyconstrictor.ru** (хост `infra-dev`). Прежний адрес
 приложения перенаправляет на новый — пока идёт переход, оба имени живут
@@ -31,21 +38,30 @@ PDF, DOCX, XLSX или TXT либо вводит текст руками, сис
   поиском. Так же и Redis: его отказ не мешает входу и загрузке документов.
 - **Нет редактирования текста** после создания: только удаление и переключение
   публичности.
-- **Чанкинга и векторного поиска нет.** Гибридный поиск (BM25 + kNN) — отдельная
-  работа, см. `docs/ARCHITECTURE.md`.
+- **Вектора не заменяют полнотекст.** Если модель эмбеддингов недоступна, поиск
+  отрывков отвечает по словам и честно говорит об этом в `source` — молча выдать
+  поиск по словам за поиск по смыслу нельзя.
+- **Понимает не любой перефраз.** В замере гибридный поиск находит 5
+  перефразированных вопросов из 7; два не находит ни один вариант. Полного
+  «понимания» здесь нет, и обещать его не стоит.
 
 ## Стек
 
 | Слой | Что |
 |---|---|
 | Приложение | Python 3.12, Django 6.0, Django REST Framework, django-htmx |
-| Поиск | Elasticsearch 8.11 (общий контейнер), django-elasticsearch-dsl 7.4 |
+| Поиск | Elasticsearch 8.11 (общий контейнер), django-elasticsearch-dsl 7.4; kNN — телом запроса, потому что клиент в замке 7.17 |
+| ИИ | Ollama: `qwen3:8b` — описания и теги, `bge-m3` — эмбеддинги отрывков (1024) |
 | Данные | PostgreSQL 17 (общий контейнер, база `diploma`), Redis 8 (общая, база `/1`) |
 | Аутентификация | SimpleJWT для API, сессии для веб-интерфейса |
-| Извлечение текста | pypdf, python-docx, openpyxl |
+| Извлечение текста | pdfplumber, python-docx, openpyxl |
 | Сборка и запуск | Poetry 2.4.1, gunicorn, Docker, GitHub Actions |
 
 Почему клиент Elasticsearch 7.x при сервере 8.11 — в `docs/ARCHITECTURE.md`.
+
+`qwen3:8b` — **общая модель трёх приложений**: на всех одна видеокарта, и второй
+файл модели вытеснил бы её у соседей. Поэтому различия между приложениями задаются
+параметрами запроса, а не другой моделью.
 
 ## Быстрый старт
 
@@ -65,16 +81,20 @@ poetry run python manage.py runserver
 
 Приложение: http://127.0.0.1:8000
 
-Переиндексация документов в Elasticsearch:
+Переиндексация и вектора — три команды, и **порядок у них не произвольный**:
+`reindex_chunks` пересоздаёт индекс отрывков целиком и о векторах не знает,
+поэтому после него `embed_chunks` нужен снова.
 
 ```bash
-poetry run python manage.py search_index --rebuild -f
+poetry run python manage.py search_index --rebuild -f   # индекс documents
+poetry run python manage.py reindex_chunks              # индекс chunks
+poetry run python manage.py embed_chunks                # вектора для chunks
 ```
 
 ### Тесты и линтеры
 
 ```bash
-poetry run pytest                    # 153 теста, settings_ci: sqlite + мок ES
+poetry run pytest                    # весь набор, включая documents/tests
 poetry run black --check --line-length 120 .
 poetry run isort --check-only --profile black --line-length 120 .
 poetry run flake8 . --max-line-length=120 --ignore=E203,W503,E501
@@ -83,6 +103,25 @@ poetry run flake8 . --max-line-length=120 --ignore=E203,W503,E501
 Тесты не требуют ни PostgreSQL, ни Redis, ни Elasticsearch: их подменяет
 `config/settings_ci.py`. Проверки устойчивости к отказам Elasticsearch и Redis —
 в `tests/test_resilience.py`.
+
+## Команды управления
+
+Индексы производные: их всегда можно пересобрать из PostgreSQL, поэтому повторный
+запуск ничего не портит.
+
+| Команда | Что делает | Когда нужна |
+|---|---|---|
+| `manage.py search_index --rebuild -f` | пересобирает индекс `documents` | после первого деплоя, после смены маппинга |
+| `manage.py reindex_chunks` | пересоздаёт индекс `chunks` из текста документов | после первого деплоя, после смены нарезки |
+| `manage.py embed_chunks [--force] [--index …]` | считает вектора отрывков | **после `reindex_chunks`** и после загрузки документов; `--force` — после смены модели эмбеддингов |
+| `manage.py reextract_text [--dry-run]` | перечитывает текст из файлов | после смены извлечения (пригодилось при переходе на pdfplumber) |
+| `manage.py summarize_documents [--all] [--limit N] [--dry-run]` | описания и теги документов | если описание не получилось или сменилась языковая модель |
+| `manage.py describe_unreadable_documents [--apply] [--document ID]` | заголовки разделов для документов без текста | для сканов; без `--apply` только показывает, что нашлось |
+| `manage.py issue_api_token --name … --scope …` | выпуск токена потребителя | новый потребитель; `--list`, `--revoke ID` |
+
+Про `embed_chunks` легко забыть, и это не громкая ошибка: без векторов поиск не
+ломается — он отвечает полнотекстовым и помечает ответ `source: "fulltext"`.
+Поэтому шаг назван здесь отдельно.
 
 ## Переменные окружения
 
@@ -97,7 +136,14 @@ poetry run flake8 . --max-line-length=120 --ignore=E203,W503,E501
 | `POSTGRES_*`, `DB_HOST`, `DB_PORT` | база; в контейнере `DB_HOST=postgres` |
 | `ELASTICSEARCH_HOST`, `ELASTICSEARCH_PORT` | в контейнере `elasticsearch:9200` |
 | `REDIS_URL` | номер базы закреплён за проектом: `/1` |
+| `OLLAMA_URL` | адрес Ollama; пусто — описания и вектора выключены, поиск отвечает полнотекстом |
+| `OLLAMA_MODEL` | `qwen3:8b` — описания, теги, дословный отрывок |
+| `OLLAMA_EMBED_MODEL`, `OLLAMA_EMBED_DIMS` | `bge-m3` и 1024 — вектора для поиска отрывков; смена модели требует `embed_chunks --force`, а другой размерности — ещё и пересборки индекса |
 | `EMAIL_*` | подтверждение почты и сброс пароля |
+
+`OLLAMA_*` нет в примерных файлах окружения намеренно: локально Ollama не
+обязательна (без неё поиск работает полнотекстовым), а на сервере адрес задан в
+`/srv/config/env/diploma.env`.
 
 ## API
 
@@ -173,12 +219,14 @@ hotfix/*    от main, PR в main, затем обратный мерж в devel
 config/            настройки Django, urls, health-эндпоинты
 documents/         документы, поиск, индексация, извлечение текста
   constants.py       единые ограничения и валидация
+  chunking.py        нарезка текста на куски
   rubrics.py         список рубрик и его кэш
-  signals.py         индексация и сброс кэша (best-effort)
-  services/          сервис поиска
+  signals.py         индексация, отрывки и сброс кэша (best-effort)
+  services/          поиск, отрывки, эмбеддинги, описания
+  management/commands/  пересборка индексов, описания, токены
 users/             кастомная модель пользователя, аутентификация по email
 deploy/nginx/      vhost для общего nginx хоста
-templates/         шаблоны (Bootstrap + HTMX)
+templates/         шаблоны (Django + HTMX)
 tests/             pytest
 docs/              документация
 ```
@@ -214,9 +262,22 @@ curl -X POST https://sito.pyconstrictor.ru/api/v1/search/retrieve \
 ```
 
 Ответ: `{"results": [{"document_id", "chunk_index", "chunk_total", "document_version",
-"title", "text", "score", "rubrics", "is_public"}], "source": "fulltext"}`.
+"title", "text", "score", "rubrics", "is_public"}], "source": "hybrid"}`.
+
+`score` всегда `null`: после слияния по рангам это ни BM25, ни косинус. `source`
+говорит, чем именно нашли, — `hybrid`, `vector` или `fulltext`; последнее значит,
+что вектора были недоступны и поиск отработал по словам, о чём человеку стоит
+сказать.
 
 Пустой `results` при 200 — это «не нашлось», а не ошибка: потребитель обязан
 ответить человеку, что материала нет, а не отвечать по памяти модели. `503` —
-поиск недоступен. Индекс отрывков пересобирается командой
-`poetry run python manage.py reindex_chunks`.
+поиск недоступен (в том числе если индекс отрывков не пересобран).
+
+Индекс отрывков производный, и вектора в нём — отдельный шаг: `reindex_chunks`
+пересоздаёт индекс и стирает вектора, после него нужен `embed_chunks`.
+
+Документы, из которых текст не извлекается (шрифты переведены в кривые, сканы),
+описываются командой `describe_unreadable_documents`: она показывает страницы
+зрительной модели и просит **только заголовки разделов**. Кода в описании нет
+намеренно — значения модель выдумывает, а неверная строка кода хуже её
+отсутствия.
