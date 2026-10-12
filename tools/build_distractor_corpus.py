@@ -1523,7 +1523,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--verify", action=argparse.BooleanOptionalAction, default=True, help="прогонять 15 вопросов")
     parser.add_argument("--preview", type=int, default=0, help="показать первые N собранных кусков")
-    parser.add_argument("--ollama-url", default="http://192.168.0.78:11434", help="адрес Ollama для эмбеддингов")
+    parser.add_argument("--ollama-url", default="http://192.168.0.26:11434", help="адрес Ollama для эмбеддингов")
     parser.add_argument(
         "--es-url", default="", help="адрес Elasticsearch (по умолчанию — из настроек, иначе ssh-туннель)"
     )
