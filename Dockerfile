@@ -14,6 +14,24 @@ ENV PIP_NO_CACHE_DIR=1 \
 
 WORKDIR /app
 
+# pip обновляется **из wheel с проверкой SHA-256**, а до этого — никаких
+# установок через pip.
+#
+# Причина: `python:3.12-slim-bookworm` несёт pip 25.0.1, а любой pip ниже
+# 26.2.2 доверяет подделанным сертификатам eMudhra и **не слушает системное
+# хранилище** — встроенный certifi грузится вдобавок к нему, отключить это
+# нельзя (инцидент от 22.10.2026, все восемь CA на ключах с d < 256).
+#
+# Значит, `pip install poetry` старым pip'ом — это установка **через
+# скомпрометированное доверие**: подменённый poetry потом ставит что угодно.
+#
+# Хеш закрывает ровно это: подменённый файл не сойдётся с SHA-256, и сборка
+# упадёт, а не поставит чужое.
+RUN python -m pip install --no-cache-dir \
+        "pip @ https://files.pythonhosted.org/packages/3f/06/3e4420302363fbb71be3c7f35ce042f54bfca330e3e66b3a2e3c4cca579f/pip-26.2.2-py3-none-any.whl#sha256=fd7f4dfa8190e014013b9f08f3e973f4e4c26ffd179a204895533a7254813a70" \
+    && python -m pip --version
+
+# Ставится **уже обновлённым** pip'ом — иначе смысл хеша теряется.
 RUN python -m pip install --no-cache-dir "poetry==${POETRY_VERSION}"
 
 # Слой зависимостей кэшируется отдельно от кода: правка приложения не
@@ -25,6 +43,12 @@ COPY . .
 
 
 FROM python:3.12-slim-bookworm AS runtime
+
+# Тот же базовый образ, тот же старый pip. В рантайме pip не используется —
+# приложение запускается из venv, — но оставлять в образе уязвимый
+# инструмент незачем: однажды кто-то зайдёт и запустит.
+RUN python -m pip install --no-cache-dir \
+        "pip @ https://files.pythonhosted.org/packages/3f/06/3e4420302363fbb71be3c7f35ce042f54bfca330e3e66b3a2e3c4cca579f/pip-26.2.2-py3-none-any.whl#sha256=fd7f4dfa8190e014013b9f08f3e973f4e4c26ffd179a204895533a7254813a70"
 
 # uid и gid 1000 совпадают с владельцем /srv/data/diploma на сервере. Это
 # позволяет контейнеру писать медиа и статику в bind-mount, не работая от root
