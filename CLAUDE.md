@@ -115,13 +115,16 @@ $ANDROID_HOME/platform-tools/adb exec-out screencap -p > /tmp/shot.png
 - Индексы: `documents` (целые документы) и `chunks` (отрывки для контракта, с
   полем `dense_vector`). Пересборка: `manage.py search_index --rebuild -f`,
   `manage.py reindex_chunks`, `manage.py reextract_text`.
-- **После `reindex_chunks` и после загрузки документов запускать
+- **После `reindex_chunks`, загрузки и любого сохранения документа запускать
   `manage.py embed_chunks`.** `reindex_chunks` пересоздаёт индекс целиком и
-  стирает вектора; куски нового документа пишутся без векторов. Поиск без них не
-  падает — тихо отвечает полнотекстовым с `source: "fulltext"`. Заметить это
-  можно только по `source` (или запросом «есть ли `dense_vector`», см.
-  OPERATIONS.md). Так уже было: 117 кусков из 145 остались без векторов после
-  загрузок 12–15 октября. После смены модели эмбеддингов — `embed_chunks --force`.
+  стирает вектора; куски нового документа пишутся без векторов. То же делает
+  **любая** команда, сохраняющая документ: сигнал `post_save` переписывает куски
+  без `dense_vector` (`summarize_documents`, `reextract_text`,
+  `describe_unreadable_documents --apply`). 7 ноября так пропал вектор после
+  `summarize_documents` — стало 825 из 826, добрали `embed_chunks`. Поиск без
+  векторов не падает — тихо отвечает полнотекстовым с `source: "fulltext"`.
+  Заметить можно по `source` или запросом «есть ли `dense_vector`»
+  (OPERATIONS.md). После смены модели эмбеддингов — `embed_chunks --force`.
 - Языковая модель: Ollama в локальной сети, `OLLAMA_URL` в окружении.
   Описания, теги и дословный отрывок — **`qwen3:8b`**, общая с лаптем и
   Самогоном ([ADR-0010](https://github.com/aleksey-s-lozhkin/lapot/blob/main/docs/decisions/0010-one-model-for-two-apps.md))

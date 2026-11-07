@@ -145,7 +145,8 @@ docker exec diploma-web python manage.py embed_chunks   # без него не �
 заведомо перефразированный. Порядок проверки:
 
 ```bash
-# 1. Есть ли у отрывков вектора (их не будет после reindex_chunks, если забыть embed_chunks)
+# 1. Есть ли у отрывков вектора (их не будет после reindex_chunks или любого
+#    сохранения документа, если забыть embed_chunks)
 docker exec diploma-web python -c "
 from elasticsearch_dsl.connections import connections
 print(connections.get_connection().count(index='chunks', body={'query': {'exists': {'field': 'dense_vector'}}}))"
@@ -158,6 +159,13 @@ docker exec diploma-web python -c "
 from documents.services import embedding_service
 print(embedding_service.model_name(), embedding_service.dimension())"
 ```
+
+Вектора теряются не только после `reindex_chunks`: **любая** команда,
+сохраняющая документ (`summarize_documents`, `reextract_text`,
+`describe_unreadable_documents --apply`), через сигнал `post_save`
+переписывает куски без `dense_vector`. 7 ноября так стало 825 из 826 после
+`summarize_documents` — добрали `embed_chunks` (он берёт только куски без
+векторов, поэтому повторный запуск безопасен).
 
 Векторная половина — **дополнение, а не замена**: её отказ не ломает поиск, и
 именно поэтому о нём легко не узнать. В логе это видно строкой «Векторная
