@@ -88,24 +88,34 @@ $ANDROID_HOME/platform-tools/adb exec-out screencap -p > /tmp/shot.png
 
 - Ветки: `feature/*` → `develop`, релиз `develop` → `main`, hotfix от `main`.
   Мерж в `main` сам запускает публикацию образа и деплой по SHA.
+- **Релизный PR вливать merge-коммитом, а не squash.** При squash коммиты
+  `develop` не попадают в историю `main`: деревья совпадают, история расходится
+  (так вышло с #119), и следующий релиз сверяют по содержимому, а не по истории.
 - После релиза `main` вливается обратно в `develop`.
-- Деплой: образ в Docker Hub, выкладка по SSH, health-gate, дамп перед миграциями.
-  Подробности — [docs/DEPLOY.md](docs/DEPLOY.md).
+- Деплой: образ в Docker Hub, выкладка по SSH, health-gate. Бэкапы автоматика
+  не делает: дамп перед миграциями — вручную (`pg_dump`, docs/OPERATIONS.md,
+  «Бэкапы»). Подробности — [docs/DEPLOY.md](docs/DEPLOY.md).
 - Падение публикации из-за Docker Hub (500, таймаут `auth.docker.io`) — это их
   авария, а не наш код: выкладку достаточно перезапустить.
 
 ## Окружение (без секретов)
 
-- Хост `infra-dev` (SSH, порт 2222, пользователь `alserloz`); общие контейнеры
-  `postgres`, `redis`, `elasticsearch`, `nginx`; проект — `/srv/compose/diploma`,
-  окружение — `/srv/config/env/diploma.env` (права 600), медиа — `/srv/data/diploma`.
+- Хост `infra-dev` (SSH, порт 2222, пользователь `alserloz`); локально имя
+  `infra-dev` не резолвится — хост записан в `known_hosts` как `95.54.44.225`.
+  Общие контейнеры `postgres`, `redis`, `elasticsearch`, `nginx`; проект —
+  `/srv/compose/diploma`, окружение — `/srv/config/env/diploma.env` (права 600),
+  медиа — `/srv/data/diploma`. Имя `diploma` в путях и образе — не забытое
+  старое: это осознанный переходный период, пункт 9 в `docs/STATUS.md`.
 - Индексы: `documents` (целые документы) и `chunks` (отрывки для контракта, с
   полем `dense_vector`). Пересборка: `manage.py search_index --rebuild -f`,
   `manage.py reindex_chunks`, `manage.py reextract_text`.
-- **После `reindex_chunks` запускать `manage.py embed_chunks`.** Пересборка
-  пересоздаёт индекс целиком и стирает вектора, а поиск без них не падает — тихо
-  отвечает полнотекстовым с `source: "fulltext"`. Заметить это можно только по
-  `source`. После смены модели эмбеддингов — `embed_chunks --force`.
+- **После `reindex_chunks` и после загрузки документов запускать
+  `manage.py embed_chunks`.** `reindex_chunks` пересоздаёт индекс целиком и
+  стирает вектора; куски нового документа пишутся без векторов. Поиск без них не
+  падает — тихо отвечает полнотекстовым с `source: "fulltext"`. Заметить это
+  можно только по `source` (или запросом «есть ли `dense_vector`», см.
+  OPERATIONS.md). Так уже было: 117 кусков из 145 остались без векторов после
+  загрузок 12–15 октября. После смены модели эмбеддингов — `embed_chunks --force`.
 - Языковая модель: Ollama в локальной сети, `OLLAMA_URL` в окружении.
   Описания, теги и дословный отрывок — **`qwen3:8b`**, общая с лаптем и
   Самогоном ([ADR-0010](https://github.com/aleksey-s-lozhkin/lapot/blob/main/docs/decisions/0010-one-model-for-two-apps.md))

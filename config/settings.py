@@ -131,6 +131,12 @@ USE_TZ = True
 OLLAMA_URL = os.getenv("OLLAMA_URL", "")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen3:8b")
 OLLAMA_TIMEOUT_SECONDS = int(os.getenv("OLLAMA_TIMEOUT_SECONDS", "90"))
+#: Зрительная модель для `describe_unreadable_documents`. Отдельная переменная,
+#: потому что она вытесняет общую `qwen3:8b` с единственной видеокарты, пока
+#: работает; включать её в конвейер нельзя. До этой правки переменная была в
+#: примерах окружения, но настройка её не читала — значение всегда оставалось
+#: по умолчанию.
+OLLAMA_VISION_MODEL = os.getenv("OLLAMA_VISION_MODEL", "gemma3:4b")
 
 # Модель эмбеддингов — отдельно от чат-модели.
 #
@@ -327,7 +333,10 @@ RATELIMIT_CACHE_PREFIX = "rl:"
 RATELIMIT_ENABLE = True
 
 # Email настройки (для верификации)
-EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
+#: Бэкенд читается из окружения: локально `.env.example` обещает консольный
+#: вывод писем, на проде в `/srv/config/env/diploma.env` стоит SMTP. Пока
+#: значение было захардкожено, локальная переменная молча игнорировалась.
+EMAIL_BACKEND = os.getenv("EMAIL_BACKEND", "django.core.mail.backends.smtp.EmailBackend")
 EMAIL_HOST = os.getenv("EMAIL_HOST", "smtp.yandex.ru")
 EMAIL_PORT = int(os.getenv("EMAIL_PORT", 465))
 EMAIL_USE_TLS = os.getenv("EMAIL_USE_TLS", "False") == "True"

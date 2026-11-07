@@ -71,7 +71,7 @@
                                     "file": {
                                         "type": "string",
                                         "format": "binary",
-                                        "description": "Файл (PDF, DOCX, XLSX, TXT)"
+                                        "description": "Файл (PDF, DOCX, XLSX, TXT, MD, PY)"
                                     }
                                 }
                             }
