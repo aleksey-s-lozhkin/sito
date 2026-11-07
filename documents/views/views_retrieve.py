@@ -168,7 +168,7 @@ class RetrieveView(APIView):
         if rubrics:
             search = search.query(
                 "bool",
-                should=[Q("match", rubrics=rubric) for rubric in rubrics],
+                should=[Q("match_phrase", rubrics=rubric) for rubric in rubrics],
                 minimum_should_match=1,
             )
 
@@ -182,7 +182,7 @@ class RetrieveView(APIView):
         return search[: max(limit * FETCH_FACTOR, limit)]
 
     @staticmethod
-    def _knn_body(api_token, query, size) -> dict:
+    def _knn_body(api_token, query, size, rubrics=None) -> dict:
         """Векторный запрос телом, а не объектом DSL.
 
         Почему так, а не `search.query("knn", ...)`: в замке клиент 7.17, и
@@ -194,8 +194,35 @@ class RetrieveView(APIView):
         потому что `knn` верхнего уровня `query` не учитывает. Для проекта,
         где изоляция документов держится на ADR-0001, это прямой доступ к
         чужому, а не недочёт.
+
+        По той же причине **рубрики фильтруются внутри `knn`**: снаружи
+        векторная половина их не увидит и вернёт чужие рубрики, а ответ
+        честно назовёт себя `hybrid`.
+
+        `_source` обязан включать `text`: отрывок без текста потребителю
+        бесполезен — по нему нельзя ответить. Раньше векторные попадания
+        приходили с `"text": null`, а слияние по рангам брало текстовую
+        версию только при совпадении.
         """
         from documents.services.embedding_service import embed_query
+
+        filter_body = RetrieveView._visible_body(api_token)
+        if rubrics:
+            filter_body = {
+                "bool": {
+                    "filter": [
+                        filter_body,
+                        {
+                            "bool": {
+                                # Та же семантика, что у полнотекстовой
+                                # половины: «хотя бы одна из рубрик».
+                                "should": [{"match_phrase": {"rubrics": rubric}} for rubric in rubrics],
+                                "minimum_should_match": 1,
+                            }
+                        },
+                    ]
+                }
+            }
 
         return {
             "knn": {
@@ -203,7 +230,7 @@ class RetrieveView(APIView):
                 "query_vector": embed_query(query),
                 "k": size,
                 "num_candidates": max(size * 10, 100),
-                "filter": RetrieveView._visible_body(api_token),
+                "filter": filter_body,
             },
             "_source": [
                 "document_id",
@@ -211,6 +238,7 @@ class RetrieveView(APIView):
                 "chunk_total",
                 "document_version",
                 "title",
+                "text",
                 "rubrics",
                 "is_public",
                 "user_id",
@@ -275,7 +303,7 @@ class RetrieveView(APIView):
 
         knn_hits: list = []
         try:
-            body = RetrieveView._knn_body(api_token, query, size)
+            body = RetrieveView._knn_body(api_token, query, size, rubrics)
             raw = connections.get_connection().search(index=CHUNKS_INDEX, body=body)
             knn_hits = [RetrieveView._hit_to_dict(hit) for hit in raw["hits"]["hits"]]
         except Exception as exc:  # noqa: BLE001
