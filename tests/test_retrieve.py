@@ -346,3 +346,50 @@ class VisibilityFilterPlacementTest(TestCase):
 
         self.assertIn("is_public", as_text)
         self.assertNotIn("user_id", as_text, "служебному токену выдали личное")
+
+    def test_the_source_contains_text(self):
+        """Векторный отрывок обязан приходить с текстом.
+
+        Раньше `_source` не включал `text`, и все попадания векторной
+        половины приходили с `"text": null`. Потребитель не мог построить
+        по ним ответ, а `hybrid` при этом выглядел честным.
+        """
+        body = RetrieveView._knn_body(self.token, "контейнеризация", 5)
+
+        self.assertIn("text", body["_source"], "векторный отрывок без текста бесполезен потребителю")
+
+    def test_rubrics_are_filtered_inside_the_knn_clause(self):
+        """Рубрики тоже фильтруются **внутри** `knn`.
+
+        Снаружи векторная половина их не увидит: ответ назовётся `hybrid`,
+        а в выдаче будут чужие рубрики. Фильтр видимости при этом обязан
+        остаться в том же дереве, а не потеряться.
+        """
+        body = RetrieveView._knn_body(self.token, "контейнеризация", 5, ["Docker"])
+        as_text = json.dumps(body["knn"]["filter"], ensure_ascii=False)
+
+        self.assertIn("match_phrase", as_text, "рубрика ищется словами, а не фразой")
+        self.assertIn("Docker", as_text)
+        self.assertIn("is_public", as_text, "вместе с рубриками потерялась видимость")
+        self.assertNotIn("filter", body, "фильтр снаружи knn не действует")
+
+    def test_without_rubrics_there_is_no_rubric_clause(self):
+        body = RetrieveView._knn_body(self.token, "контейнеризация", 5)
+
+        self.assertNotIn("match_phrase", json.dumps(body["knn"]["filter"], ensure_ascii=False))
+
+
+class FulltextRubricsTest(TestCase):
+    """Рубрики в полнотекстовой половине — фразой, а не набором слов.
+
+    `match` разбивал «Базы данных» на «базы» и «данных» и подходил к
+    документам с любой половиной. Фраза сужает так же, как векторный фильтр.
+    """
+
+    def test_rubrics_are_matched_as_phrase(self):
+        token, _ = ApiToken.issue("semen")
+        search = RetrieveView._build_search(token, "договор", ["Базы данных"], 10)
+        as_text = json.dumps(search.to_dict(), ensure_ascii=False)
+
+        self.assertIn("match_phrase", as_text)
+        self.assertIn("Базы данных", as_text)
