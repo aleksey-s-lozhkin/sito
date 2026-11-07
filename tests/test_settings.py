@@ -50,6 +50,37 @@ class CorsSettingsTest(SimpleTestCase):
                 importlib.reload(settings_module)
 
 
+class OllamaAndEmailSettingsTest(SimpleTestCase):
+    """Переменные, которые были в примерах окружения, но игнорировались кодом.
+
+    ``OLLAMA_VISION_MODEL`` и ``EMAIL_BACKEND`` присутствовали в
+    ``.env.example``, а настройки их не читали: зрительная модель всегда
+    оставалась ``gemma3:4b``, бэкенд почты — SMTP.
+    """
+
+    def test_vision_model_comes_from_environment(self):
+        with mock.patch.dict(os.environ, {"OLLAMA_VISION_MODEL": "gemma3:12b"}):
+            importlib.reload(settings_module)
+            try:
+                self.assertEqual(settings_module.OLLAMA_VISION_MODEL, "gemma3:12b")
+            finally:
+                importlib.reload(settings_module)
+
+    def test_email_backend_comes_from_environment(self):
+        with mock.patch.dict(
+            os.environ,
+            {"EMAIL_BACKEND": "django.core.mail.backends.console.EmailBackend"},
+        ):
+            importlib.reload(settings_module)
+            try:
+                self.assertEqual(
+                    settings_module.EMAIL_BACKEND,
+                    "django.core.mail.backends.console.EmailBackend",
+                )
+            finally:
+                importlib.reload(settings_module)
+
+
 class HealthHttpsRedirectTest(TestCase):
     """Проверки состояния должны отвечать по http изнутри контейнера.
 

@@ -172,9 +172,9 @@ REAL_USER_ID = 1
 #: (`documents/documents.py`, `ChunkIndex`), и замер ищет ровно по нему.
 DEFAULT_VECTOR_FIELD = "dense_vector"
 
-#: Размерность вектора `nomic-embed-text`. Проверяется сервисом эмбеддингов;
-#: здесь только значение для маппинга, если сервис недоступен.
-FALLBACK_DIMS = 768
+#: Размерность вектора `bge-m3` (текущая модель эмбеддингов). Обычно берётся у
+#: сервиса; здесь — запасное значение для маппинга, если сервис недоступен.
+FALLBACK_DIMS = 1024
 
 #: Сколько знаков скачанного текста приходится в среднем на один готовый кусок.
 #: Замер на выборке из 150 страниц: страница учебника даёт около 1100 знаков, а
@@ -1627,7 +1627,7 @@ def main(argv: list[str] | None = None) -> int:
             # Имя поля вектора — из живого маппинга: замер ищет строго по нему.
             vector_field = live_vector_field(client)
             if with_embedding:
-                log(f"4. Векторы (nomic-embed-text, {dims} измерений, поле {vector_field})")
+                log(f"4. Векторы (bge-m3, {dims} измерений, поле {vector_field})")
                 try:
                     vector_count = embed_payloads(built.payloads, args, vector_field)
                     log(f"  векторов: {vector_count}")

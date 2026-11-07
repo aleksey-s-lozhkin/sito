@@ -135,7 +135,11 @@ class DocumentViewSet(viewsets.ModelViewSet):
                     },
                     "text": {"type": "string", "description": "Текст документа (если без файла)"},
                     "is_public": {"type": "boolean", "description": "Публичный доступ", "default": False},
-                    "file": {"type": "string", "format": "binary", "description": "Файл (PDF, DOCX, XLSX, TXT)"},
+                    "file": {
+                        "type": "string",
+                        "format": "binary",
+                        "description": "Файл (PDF, DOCX, XLSX, TXT, MD, PY)",
+                    },
                 },
             }
         },
