@@ -247,13 +247,23 @@ button:disabled { opacity: .55; cursor: default; }
 .list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
 
 .item {
-  display: flex; align-items: flex-start; gap: 12px;
+  /* Сетка, а не flex-строка: кнопки занимают только первую строку рядом с
+     названием, а содержимое карточки идёт ниже на всю её ширину. В flex они
+     отбирали у текста целую колонку по всей высоте, и справа под кнопками
+     оставалась пустота. */
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 12px;
+  align-items: start;
   background: var(--panel); border: 1px solid var(--border);
   border-radius: var(--radius-small);
   padding: 15px 12px 15px 16px;
 }
-.item .body { flex: 1 1 auto; min-width: 0; }
-.item .tools { display: flex; align-items: center; gap: 4px; flex: 0 0 auto; }
+/* `display: contents` распаковывает обёртку: её дети становятся клетками сетки
+   карточки. Название и кнопки делят первую строку, остальное идёт ниже на всю
+   ширину — поэтому правый столбец больше не резервируется под кнопки. */
+.item .body { display: contents; }
+.item .body > .title { grid-column: 1; grid-row: 1; min-width: 0; }
+.item .body > :not(.title) { grid-column: 1 / -1; }
+.item .tools { display: flex; align-items: center; gap: 4px; flex: 0 0 auto; grid-column: 2; grid-row: 1; justify-self: end; }
 .item.public { border-left: 3px solid var(--success); }
 .item.dead { opacity: .55; }
 
